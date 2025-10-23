@@ -23,3 +23,8 @@ def create_token(data: dict, token_type: str = "access"):
 
     to_encode = {"data": data, "exp": datetime.now(timezone.utc) + expires_delta}
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str):
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=ALGORITHM)
+    return payload

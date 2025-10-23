@@ -8,9 +8,9 @@
 
 
 ## Endpoints
-- [ ] /api/v1/login [To login as a user]
-- [ ] /api/v1/refresh [To refresh the access token]
-- [ ] /api/v1/logout [To delete the current sesstion]
+- [x] /api/v1/login [To login as a user]
+- [x] /api/v1/refresh [To refresh the access token]
+- [x] /api/v1/logout [To delete the current sesstion]
 
 - [ ] /api/v1/projects (GET) [To get a list of projects paginated]
 - [ ] /api/v1/projects (POST) [To add a project]
