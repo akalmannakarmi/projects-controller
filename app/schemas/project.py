@@ -17,3 +17,7 @@ class ProjectRead(ProjectBase):
 
 class ProjectDetail(ProjectRead):
     instanceId: str
+
+
+class ProjectStatus(BaseModel):
+    status: str
