@@ -23,7 +23,7 @@ async def login(user_in: UserLogin, db: AsyncSession = Depends(get_db)):
     refreshToken = create_token({"userId": user.id, "type": "refresh"}, "refresh")
     accessToken = create_token({"userId": user.id, "type": "access"})
 
-    db.add(RefreshToken(token=refreshToken))
+    db.add(RefreshToken(token=refreshToken, user_id=user.id))
     await db.commit()
 
     return {"access_token": accessToken, "refresh_token": refreshToken}
@@ -54,8 +54,8 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found"
         )
 
-    user_id = payload.get("userId")
-    new_access_token = create_token({"userId": user_id, "type": "access"})
+    userId = payload.get("data", {}).get("userId")
+    new_access_token = create_token({"userId": userId, "type": "access"})
 
     return {"access_token": new_access_token}
 
