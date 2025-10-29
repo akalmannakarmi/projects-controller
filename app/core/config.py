@@ -9,9 +9,11 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30
     DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
     SYNC_DATABASE_URL: str = "sqlite:///./test.db"
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:4321"]
 
     class Config:
         env_file = ".env"
+        extra = "allow"
 
 
 settings = Settings()

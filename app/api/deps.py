@@ -11,7 +11,6 @@ async def get_user(token: str = Depends(oauth2_scheme)) -> int:
     """Extracts and validates the JWT, returning the user_id."""
     try:
         payload = decode_token(token)
-        print(payload)
         if payload.get("data", {}).get("type") != "access":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
