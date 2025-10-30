@@ -1,143 +1,115 @@
-from os import stat
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+import logging
 
-from app.db.models import Project
-from app.schemas.project import ProjectCreate, ProjectDetail, ProjectRead, ProjectStatus
-from app.api.deps import get_db, get_user
-from app.utils.aws_ec2 import start_instance, stop_instance, instance_status
+from app.core.config import settings
+from app.db import models
+from app.api.deps import get_db
+from app.schemas.project import ProjectCreate, ProjectPublic
+from app.utils.aws_ec2 import EC2Manager
+from app.utils.cloudflare import CloudflareManager
+from app.utils.nginx_manager import NginxManager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.get("/", response_model=list[ProjectRead])
-async def list_projects(
-    db: AsyncSession = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).offset(skip).limit(limit))
-    projects = result.scalars().all()
-    return projects
+@router.post("/", response_model=ProjectPublic)
+def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+    """Create a new project entry in the DB."""
+    existing = db.query(models.Project).filter_by(name=payload.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Project already exists")
 
-
-@router.post("/", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
-async def create_project(
-    project_in: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    project = Project(**project_in.model_dump())
+    project = models.Project(**payload.model_dump())
     db.add(project)
-    await db.commit()
-    await db.refresh(project)
+    db.commit()
+    db.refresh(project)
+
+    # Immediately set Nginx to offline state
+    nginx = NginxManager()
+    nginx.set_state(project.name, project.subdomain, "offline")
+
     return project
 
 
-@router.get("/{project_id}", response_model=ProjectDetail)
-async def get_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
+@router.get("/", response_model=list[ProjectPublic])
+def list_projects(db: Session = Depends(get_db)):
+    return db.query(models.Project).all()
+
+
+@router.get("/{project_id}", response_model=ProjectPublic)
+def get_project(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(models.Project).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
 
-@router.patch("/{project_id}", response_model=ProjectDetail)
-async def update_project(
-    project_id: int,
-    project_in: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
+@router.post("/{project_id}/start", response_model=ProjectPublic)
+def start_project(
+    project_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
+    project = db.query(models.Project).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    project_data = project_in.model_dump(exclude_unset=True)
-    for key, value in project_data.items():
-        setattr(project, key, value)
+    if project.status in ["running", "starting"]:
+        raise HTTPException(
+            status_code=400, detail="Project already running or starting"
+        )
 
-    db.add(project)
-    await db.commit()
-    await db.refresh(project)
+    ec2 = EC2Manager()
+    cloudflare = CloudflareManager()
+    nginx = NginxManager()
+
+    # Step 1: update status
+    project.status = "starting"
+    db.commit()
+
+    # Step 2: show starting page
+    nginx.set_state(project.name, project.subdomain, "starting")
+    cloudflare.update_dns(project.subdomain, settings.VPS_PUBLIC_IP)
+
+    # Step 3: Run instance creation in background
+    def launch_instance():
+        instance_id, public_ip = ec2.create_instance(project)
+        project.instance_id = instance_id
+        project.public_ip = public_ip
+        project.status = "running"
+        project.last_active = datetime.now(timezone.utc)
+        db.add(project)
+        db.commit()
+
+        # Update DNS and Nginx
+        cloudflare.update_dns(project.subdomain, public_ip or "")
+        nginx.set_state(project.name, project.subdomain, "running", target_ip=public_ip)
+
+        logger.info(f"Project {project.name} is now running at {public_ip}")
+
+    background_tasks.add_task(launch_instance)
     return project
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+@router.post("/{project_id}/stop", response_model=ProjectPublic)
+def stop_project(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(models.Project).get(project_id)
+    if not project or not project.instance_id:
+        raise HTTPException(status_code=404, detail="Instance not found for project")
 
-    await db.delete(project)
-    await db.commit()
-    return
+    ec2 = EC2Manager()
+    cloudflare = CloudflareManager()
+    nginx = NginxManager()
 
+    ec2.stop_instance(project.instance_id)
+    project.status = "stopped"
+    project.public_ip = None
+    project.instance_id = None
+    db.commit()
 
-@router.post("/{project_id}/start", status_code=status.HTTP_200_OK)
-async def start_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    cloudflare.revert_to_vps(project.subdomain)
+    nginx.set_state(project.name, project.subdomain, "offline")
 
-    try:
-        start_instance(str(project.instanceId))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to start project")
-
-    return
-
-
-@router.post("/{project_id}/stop", status_code=status.HTTP_200_OK)
-async def stop_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    try:
-        stop_instance(str(project.instanceId))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to stop project")
-
-    return
-
-
-@router.get("/{project_id}/status", response_model=ProjectStatus)
-async def project_status(
-    project_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_user),
-):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    try:
-        projectStatus = instance_status(str(project.instanceId))
-        return {"status": projectStatus}
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to get project status")
+    return project
