@@ -5,11 +5,10 @@ import logging
 
 from app.core.config import settings
 from app.db import models
-from app.api.deps import get_db
+from app.api.deps import get_db, get_user
 from app.schemas.project import ProjectCreate, ProjectPublic
 from app.utils.aws_ec2 import EC2Manager
 from app.utils.cloudflare import CloudflareManager
-from app.utils.nginx_manager import NginxManager
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,9 @@ router = APIRouter()
 
 
 @router.post("/", response_model=ProjectPublic)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate, db: Session = Depends(get_db), _=Depends(get_user)
+):
     """Create a new project entry in the DB."""
     existing = db.query(models.Project).filter_by(name=payload.name).first()
     if existing:
@@ -28,20 +29,16 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(project)
 
-    # Immediately set Nginx to offline state
-    nginx = NginxManager()
-    nginx.set_state(project.name, project.subdomain, "offline")
-
     return project
 
 
 @router.get("/", response_model=list[ProjectPublic])
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(db: Session = Depends(get_db), _=Depends(get_user)):
     return db.query(models.Project).all()
 
 
 @router.get("/{project_id}", response_model=ProjectPublic)
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_user)):
     project = db.query(models.Project).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -63,14 +60,12 @@ def start_project(
 
     ec2 = EC2Manager()
     cloudflare = CloudflareManager()
-    nginx = NginxManager()
 
     # Step 1: update status
     project.status = "starting"
     db.commit()
 
     # Step 2: show starting page
-    nginx.set_state(project.name, project.subdomain, "starting")
     cloudflare.update_dns(project.subdomain, settings.VPS_PUBLIC_IP)
 
     # Step 3: Run instance creation in background
@@ -85,7 +80,6 @@ def start_project(
 
         # Update DNS and Nginx
         cloudflare.update_dns(project.subdomain, public_ip or "")
-        nginx.set_state(project.name, project.subdomain, "running", target_ip=public_ip)
 
         logger.info(f"Project {project.name} is now running at {public_ip}")
 
@@ -94,14 +88,13 @@ def start_project(
 
 
 @router.post("/{project_id}/stop", response_model=ProjectPublic)
-def stop_project(project_id: int, db: Session = Depends(get_db)):
+def stop_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_user)):
     project = db.query(models.Project).get(project_id)
     if not project or not project.instance_id:
         raise HTTPException(status_code=404, detail="Instance not found for project")
 
     ec2 = EC2Manager()
     cloudflare = CloudflareManager()
-    nginx = NginxManager()
 
     ec2.stop_instance(project.instance_id)
     project.status = "stopped"
@@ -110,6 +103,5 @@ def stop_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     cloudflare.revert_to_vps(project.subdomain)
-    nginx.set_state(project.name, project.subdomain, "offline")
 
     return project

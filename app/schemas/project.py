@@ -10,7 +10,6 @@ class ProjectBase(BaseModel):
     instance_type: Optional[str] = "t3.micro"
     security_group_id: str
     key_name: str
-    vpc_id: str
     subnet_id: str
     docker_image: str
     env_vars: Optional[Dict[str, str]] = None
@@ -43,4 +42,3 @@ class ProjectInDB(ProjectBase):
 
 class ProjectPublic(ProjectInDB):
     pass
-
