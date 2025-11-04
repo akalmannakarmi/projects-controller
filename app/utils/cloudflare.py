@@ -30,8 +30,8 @@ class CloudflareManager:
             "type": "A",
             "name": name,
             "content": ip,
-            "ttl": 30,
-            "proxied": False,
+            "ttl": 60,
+            "proxied": True,
         }
 
         if record_id:
