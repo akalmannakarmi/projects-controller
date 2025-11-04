@@ -16,7 +16,6 @@ class Project(Base):
     instance_type: Mapped[Optional[str]] = mapped_column(String, default="t3.micro")
     security_group_id: Mapped[str] = mapped_column(String)
     key_name: Mapped[str] = mapped_column(String)
-    vpc_id: Mapped[str] = mapped_column(String)
     subnet_id: Mapped[str] = mapped_column(String)
     docker_image: Mapped[str] = mapped_column(String)
     env_vars: Mapped[Optional[Dict[str, str]]] = mapped_column(JSON)
@@ -33,4 +32,3 @@ class Project(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), onupdate=func.now()
     )
-
