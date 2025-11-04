@@ -1,8 +1,8 @@
 """initital
 
-Revision ID: 7d04979867cf
+Revision ID: 869d281930e5
 Revises: 
-Create Date: 2025-10-30 15:03:15.927805
+Create Date: 2025-11-04 07:16:25.584265
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7d04979867cf'
+revision: str = '869d281930e5'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -29,16 +29,15 @@ def upgrade() -> None:
     sa.Column('instance_type', sa.String(), nullable=True),
     sa.Column('security_group_id', sa.String(), nullable=False),
     sa.Column('key_name', sa.String(), nullable=False),
-    sa.Column('vpc_id', sa.String(), nullable=False),
     sa.Column('subnet_id', sa.String(), nullable=False),
     sa.Column('docker_image', sa.String(), nullable=False),
     sa.Column('env_vars', sa.JSON(), nullable=True),
-    sa.Column('auto_shutdown_enabled', sa.Boolean(), nullable=True),
-    sa.Column('status', sa.String(), nullable=True),
+    sa.Column('auto_shutdown_enabled', sa.Boolean(), nullable=False),
+    sa.Column('status', sa.String(), nullable=False),
     sa.Column('last_active', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.Column('instance_id', sa.String(), nullable=True),
     sa.Column('public_ip', sa.String(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('subdomain')
