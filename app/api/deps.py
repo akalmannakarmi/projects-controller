@@ -7,7 +7,7 @@ from app.core.security import decode_token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-async def get_user(token: str = Depends(oauth2_scheme)) -> int:
+def get_user(token: str = Depends(oauth2_scheme)) -> int:
     """Extracts and validates the JWT, returning the user_id."""
     try:
         payload = decode_token(token)
@@ -33,4 +33,4 @@ async def get_db():
     try:
         yield db
     finally:
-        await db.close()
+        db.close()
