@@ -1,3 +1,4 @@
+import json
 import boto3
 import logging
 from botocore.exceptions import ClientError
@@ -18,10 +19,12 @@ class EC2Manager:
     def create_instance(self, project):
         """Launch a new EC2 instance using project data."""
         try:
+            env_flags = build_docker_env_flags(project.env_vars)
+
             user_data = f"""#!/bin/bash
-apt-get update && apt-get install -y docker.io jq curl
+apt-get update && apt-get install -y docker.io curl
 docker pull {project.docker_image}
-docker run -d -p 80:80 $(echo '{project.env_vars}' | jq -r 'to_entries|map("-e \\(.key)=\\(.value)")|join(" ")') {project.docker_image}
+docker run -d -p 80:80 {env_flags} {project.docker_image}
 """
             response = self.ec2.run_instances(
                 ImageId=project.ami_id,
@@ -88,3 +91,37 @@ docker run -d -p 80:80 $(echo '{project.env_vars}' | jq -r 'to_entries|map("-e \
         waiter = self.ec2.get_waiter("instance_terminated")
         waiter.wait(InstanceIds=[instance_id])
         logger.info(f"Instance {instance_id} terminated")
+
+
+def build_docker_env_flags(env_vars) -> str:
+    """
+    Convert a Python dict or JSON string of environment variables
+    into a Docker-compatible string of '-e KEY="value"' flags.
+    Example:
+        {"DB_HOST": "localhost", "API_KEY": "123"} ->
+        -e DB_HOST="localhost" -e API_KEY="123"
+    """
+    if not env_vars:
+        return ""
+
+    # Parse JSON string if needed
+    if isinstance(env_vars, str):
+        try:
+            env_vars = json.loads(env_vars)
+        except json.JSONDecodeError:
+            logger.warning("Invalid env_vars JSON — skipping environment variables.")
+            return ""
+
+    if not isinstance(env_vars, dict):
+        logger.warning(
+            "env_vars must be a dict or JSON string — got %s", type(env_vars)
+        )
+        return ""
+
+    # Escape quotes and format
+    parts = []
+    for key, value in env_vars.items():
+        safe_value = str(value).replace('"', '\\"')  # escape any double quotes
+        parts.append(f'-e {key}="{safe_value}"')
+
+    return " ".join(parts)
