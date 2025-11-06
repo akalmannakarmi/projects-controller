@@ -6,7 +6,8 @@ import logging
 from app.core.config import settings
 from app.db import models
 from app.api.deps import get_db, get_user
-from app.schemas.project import ProjectCreate, ProjectPublic
+from app.schemas.basic import MessageResponse
+from app.schemas.project import ProjectCreate, ProjectDetail, ProjectPublic
 from app.utils.aws_ec2 import EC2Manager
 from app.utils.cloudflare import CloudflareManager
 
@@ -15,11 +16,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/", response_model=ProjectPublic)
+@router.post("/", response_model=MessageResponse, status_code=201)
 def create_project(
     payload: ProjectCreate, db: Session = Depends(get_db), _=Depends(get_user)
 ):
-    """Create a new project entry in the DB."""
     existing = db.query(models.Project).filter_by(name=payload.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project already exists")
@@ -29,7 +29,7 @@ def create_project(
     db.commit()
     db.refresh(project)
 
-    return project
+    return {"message": "Project created"}
 
 
 @router.get("/", response_model=list[ProjectPublic])
@@ -37,7 +37,7 @@ def list_projects(db: Session = Depends(get_db), _=Depends(get_user)):
     return db.query(models.Project).all()
 
 
-@router.get("/{project_id}", response_model=ProjectPublic)
+@router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_user)):
     project = db.query(models.Project).get(project_id)
     if not project:
@@ -45,7 +45,7 @@ def get_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_us
     return project
 
 
-@router.post("/{project_id}/start", response_model=ProjectPublic)
+@router.post("/{project_id}/start", response_model=MessageResponse)
 def start_project(
     project_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
@@ -54,9 +54,7 @@ def start_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     if project.status in ["running", "starting"]:
-        raise HTTPException(
-            status_code=400, detail="Project already running or starting"
-        )
+        return {"message": "Project is already starting"}
 
     ec2 = EC2Manager()
     cloudflare = CloudflareManager()
@@ -78,16 +76,16 @@ def start_project(
         db.add(project)
         db.commit()
 
-        # Update DNS and Nginx
+        # Update DNS
         cloudflare.update_dns(project.subdomain, public_ip or "")
 
         logger.info(f"Project {project.name} is now running at {public_ip}")
 
     background_tasks.add_task(launch_instance)
-    return project
+    return {"message": "Project is starting"}
 
 
-@router.post("/{project_id}/stop", response_model=ProjectPublic)
+@router.post("/{project_id}/stop", response_model=MessageResponse)
 def stop_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_user)):
     project = db.query(models.Project).get(project_id)
     if not project or not project.instance_id:
@@ -96,12 +94,12 @@ def stop_project(project_id: int, db: Session = Depends(get_db), _=Depends(get_u
     ec2 = EC2Manager()
     cloudflare = CloudflareManager()
 
-    ec2.stop_instance(project.instance_id)
-    project.status = "stopped"
+    ec2.terminate_instance(project.instance_id)
+    project.status = "terminated"
     project.public_ip = None
     project.instance_id = None
     db.commit()
 
     cloudflare.revert_to_vps(project.subdomain)
 
-    return project
+    return {"message": "Project has been terminated"}

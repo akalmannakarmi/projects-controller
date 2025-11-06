@@ -40,5 +40,21 @@ class ProjectInDB(ProjectBase):
         orm_mode = True
 
 
-class ProjectPublic(ProjectInDB):
+class ProjectDetail(ProjectInDB):
     pass
+
+
+class ProjectPublic(BaseModel):
+    id: int
+    name: str
+    subdomain: str
+    ami_id: str
+    status: str
+    public_ip: Optional[str]
+    last_active: Optional[datetime]
+    auto_shutdown_enabled: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
