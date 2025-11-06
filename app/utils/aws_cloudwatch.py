@@ -30,6 +30,7 @@ class CloudWatchManager:
                 Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
                 StartTime=start_time,
                 EndTime=end_time,
+                Period=300,  # 5 min
                 Statistics=["Sum"],
             )
             datapoints = response.get("Datapoints", [])

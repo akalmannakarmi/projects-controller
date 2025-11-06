@@ -10,7 +10,7 @@ from app.utils.cloudflare import CloudflareManager
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-TRAFFIC_THRESHOLD = 3000  # bytes over 15 minutes considered "idle"
+TRAFFIC_THRESHOLD = 5000  # bytes over 15 minutes considered "idle"
 INACTIVITY_WINDOW = timedelta(minutes=15)
 
 
@@ -157,4 +157,3 @@ def monitor_projects(interval: int = 300):
 
         logger.info("Sleeping %s seconds before next check...", interval)
         time.sleep(interval)
-
