@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional
 from datetime import datetime
 
 
@@ -7,12 +7,10 @@ class ProjectBase(BaseModel):
     name: str
     subdomain: str
     ami_id: str
-    instance_type: Optional[str] = "t3.micro"
     security_group_id: str
     key_name: str
     subnet_id: str
-    docker_image: str
-    env_vars: Optional[Dict[str, str]] = None
+    startup_script: str
     auto_shutdown_enabled: bool = True
 
 
