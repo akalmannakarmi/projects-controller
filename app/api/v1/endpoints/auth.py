@@ -12,7 +12,6 @@ router = APIRouter()
 
 @router.post("/login", response_model=Token)
 def login(user_in: UserLogin, db: Session = Depends(get_db)):
-    # Find user by email
     user = db.execute(
         select(User).where(User.email == user_in.email)
     ).scalar_one_or_none()
@@ -33,7 +32,6 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
 
 @router.post("/refresh", response_model=AccessTokenResponse)
 def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
-    """Exchange a valid refresh token for a new access token."""
     try:
         payload = decode_token(data.refresh_token)
         if payload.get("data", {}).get("type") != "refresh":
@@ -55,8 +53,7 @@ def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found"
         )
 
-    user_id = payload.get("data", {}).get("userId")
-    new_access_token = create_token({"userId": user_id, "type": "access"})
+    new_access_token = create_token({"userId": stored_token.user_id, "type": "access"})
 
     return {"access_token": new_access_token}
 
